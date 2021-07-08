@@ -9,7 +9,7 @@
 
 class KMeans {
 public:
-    static std::vector<std::vector<Coordinate>> group(std::vector<Coordinate> data, int k, int nIterations);
+    static std::vector<std::vector<Coordinate>> group(std::vector<Coordinate> data, int k, int nIterations, std::mt19937 rng);
 private:
     static long getSqDis(Coordinate begin, Coordinate end);
 };

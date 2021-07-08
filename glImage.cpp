@@ -34,6 +34,7 @@ void GlImage::setPixel(int x, int y, int r, int g, int b){
 
     int loc = y * this->imgWidth + x;
 
+    std::lock_guard<std::mutex> lk(mutex);
     this->imgVector[loc].r = r;
     this->imgVector[loc].g = g;
     this->imgVector[loc].b = b;

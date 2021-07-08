@@ -7,12 +7,10 @@
  * @param nIterations Number of iterations to do
  * @return List of clustered data
  */
-std::vector<std::vector<Coordinate>> KMeans::group(std::vector<Coordinate> data, int k, int nIterations){
+std::vector<std::vector<Coordinate>> KMeans::group(std::vector<Coordinate> data, int k, int nIterations, std::mt19937 rng){
 
     std::vector<Coordinate> centroids;
 
-    ulong seed = std::random_device()();
-    std::mt19937 rng(seed);
     std::uniform_int_distribution<std::mt19937::result_type> dist(0, data.size());
 
     centroids.reserve(k);

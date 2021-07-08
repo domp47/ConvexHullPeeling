@@ -4,6 +4,7 @@
 #include <GL/glut.h>
 #include <vector>
 #include <iostream>
+#include <mutex>
 #include "glPixel.h"
 
 class GlImage {
@@ -16,6 +17,7 @@ public:
     int getWidth();
     GlPixel getPixel(int y, int x);
 private:
+    std::mutex mutex;
     int imgHeight;
     int imgWidth;
     std::vector<GlPixel> imgVector;

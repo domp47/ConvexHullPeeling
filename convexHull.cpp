@@ -1,10 +1,11 @@
-#include <unordered_map>
 #include "convexHull.h"
 
-ConvexHull::ConvexHull(GlImage *img, int imgWidth, int imgHeight, int nRanPoints, int kClusters) {
+ConvexHull::ConvexHull(GlImage *img, int imgWidth, int imgHeight, int nRanPoints, int kClusters, ulong seed) {
     this->img = img;
     this->nRanPoints = nRanPoints;
     this->kClusters = kClusters;
+
+    rng = std::mt19937(seed);
 
     initImg(imgWidth, imgHeight);
     generatePoints();
@@ -64,30 +65,20 @@ void ConvexHull::clusterPeels() {
     }
 
     //K-means clustering algorithm applied to points
-    std::vector<std::vector<Coordinate>> clusters = KMeans::group(points, kClusters, MAX_ITERATIONS);
+    std::vector<std::vector<Coordinate>> clusters = KMeans::group(points, kClusters, MAX_ITERATIONS, rng);
 
-    for(int i = 0; i < kClusters; i++){
+    uint nCores = std::thread::hardware_concurrency();
 
-        ulong seed = std::random_device()();
-        std::mt19937 rng(seed);
-        std::uniform_int_distribution<int> dist(0, 255);
+    std::vector<std::vector<std::vector<Coordinate>>> groupedClusters = group(clusters, nCores);
 
-        int r = dist(rng), g = dist(rng), b = dist(rng);
+    std::vector<std::future<void>> futures;
+    futures.reserve(groupedClusters.size());
+    for (auto& groupedCluster : groupedClusters){
+        futures.push_back(std::async(&ConvexHull::processClustersAsync, this, groupedCluster));
+    }
 
-        for(Coordinate c: clusters[i]){
-            int xLoc = c.getX();
-            int yLoc = c.getY();
-
-            for(int deltaY = DELTA_START; deltaY <= DELTA_END; deltaY++){
-                for(int deltaX = DELTA_START; deltaX <= DELTA_END; deltaX++){
-                    if(yLoc + deltaY >= 0 && yLoc + deltaY < img->getHeight() && xLoc + deltaX >= 0 && xLoc + deltaX < img->getWidth()){
-                        img->setPixel(xLoc+deltaX, yLoc+deltaY, r, g, b);
-                    }
-                }
-            }
-        }
-
-        convPeel(clusters[i], r, g, b);
+    for (auto& future : futures) {
+        future.wait();
     }
 }
 
@@ -106,11 +97,7 @@ std::vector<Coordinate> ConvexHull::convHull(std::vector<Coordinate> convPoints,
     int minCoord = -1;
 
     for(int i = 0; i < convPoints.size(); i++){
-        if(convPoints[i].getX() < minX){
-            minX = convPoints[i].getX();
-            minY = convPoints[i].getY();
-            minCoord = i;
-        }else if(convPoints[i].getX() == minX && convPoints[i].getY() < minY){
+        if(convPoints[i].getX() < minX || convPoints[i].getX() == minX && convPoints[i].getY() < minY){
             minX = convPoints[i].getX();
             minY = convPoints[i].getY();
             minCoord = i;
@@ -146,7 +133,6 @@ std::vector<Coordinate> ConvexHull::convHull(std::vector<Coordinate> convPoints,
         }
 
         wuLine(convPoints[i].getX(), convPoints[i].getY(), convPoints[j].getX(), convPoints[j].getY(), r , g, b);
-        glutPostRedisplay();
 
         i = j;
 
@@ -309,7 +295,6 @@ void ConvexHull::wuLine(int x1, int y1, int x2, int y2, int r, int g, int b) {
             intery += gradient;
         }
     }
-    glutPostRedisplay();
 }
 
 /**
@@ -338,8 +323,6 @@ void ConvexHull::generatePoints() {
     points.clear();
     initImg(img->getWidth(), img->getHeight());
 
-    ulong seed = std::random_device()();
-    std::mt19937 rng(seed);
     std::uniform_int_distribution<int> distH(1, img->getHeight()-1);
     std::uniform_int_distribution<int> distW(1, img->getWidth()-1);
 
@@ -372,9 +355,6 @@ void ConvexHull::generatePoints() {
  * @param h Height of image
  */
 void ConvexHull::initImg(int w, int h) {
-    delete img;
-    img = new GlImage(w, h);
-
     for(int y = 0; y < h; y++){
         for(int x = 0; x < w; x++){
             img->setPixel(x, y, 0, 0, 0);
@@ -384,4 +364,63 @@ void ConvexHull::initImg(int w, int h) {
 
 std::vector<Coordinate> ConvexHull::getAllPoints() {
     return this->points;
+}
+
+template<typename T>
+std::vector<std::vector<T>> ConvexHull::group(std::vector<T> items, uint nGroups) {
+    std::vector<std::vector<T>> result;
+    result.reserve(nGroups);
+
+    size_t cntr = 0;
+
+    size_t groupSize = (items.size() / nGroups);
+    size_t largerGroupSize = groupSize + 1;
+    size_t nLargerGroups = items.size() % nGroups;
+
+    // We put ⌊N/M⌋+1 items in N%M of the groups, then the rest can be filled up equally
+    for(size_t g = 0; g < nLargerGroups; g++){
+        std::vector<T> largerGroup;
+        largerGroup.reserve(largerGroupSize);
+        for (size_t i = 0; i < largerGroupSize; i++){
+            largerGroup.push_back(items[cntr++]);
+        }
+
+        result.push_back(largerGroup);
+    }
+
+    std::vector<T> group;
+    group.reserve(groupSize);
+    for (size_t i = cntr; i < items.size(); i++) {
+        group.push_back(items[i]);
+
+        if(group.size() == groupSize){
+            result.push_back(group);
+            group = std::vector<T>();
+        }
+    }
+
+    return result;
+}
+
+void ConvexHull::processClustersAsync(const std::vector<std::vector<Coordinate>>& clusters) {
+    for(auto &cluster: clusters){
+        std::uniform_int_distribution<int> dist(0, 255);
+
+        int r = dist(rng), g = dist(rng), b = dist(rng);
+
+        for(Coordinate c: cluster){
+            int xLoc = c.getX();
+            int yLoc = c.getY();
+
+            for(int deltaY = DELTA_START; deltaY <= DELTA_END; deltaY++){
+                for(int deltaX = DELTA_START; deltaX <= DELTA_END; deltaX++){
+                    if(yLoc + deltaY >= 0 && yLoc + deltaY < img->getHeight() && xLoc + deltaX >= 0 && xLoc + deltaX < img->getWidth()){
+                        img->setPixel(xLoc+deltaX, yLoc+deltaY, r, g, b);
+                    }
+                }
+            }
+        }
+
+        convPeel(cluster, r, g, b);
+    }
 }

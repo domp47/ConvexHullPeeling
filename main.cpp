@@ -32,6 +32,8 @@ void keyboard(unsigned char key, int x, int y){
     switch (key){
         case 'q':
         case 'Q':
+            delete img;
+            delete cv;
             exit(0);
         case 'r':
         case 'R':
@@ -40,14 +42,17 @@ void keyboard(unsigned char key, int x, int y){
         case 'c':
         case 'C':
             cv->convHull(cv->getAllPoints());
+            glutPostRedisplay();
             break;
         case 'p':
         case 'P':
             cv->convPeel(cv->getAllPoints());
+            glutPostRedisplay();
             break;
         case 'k':
         case 'K':
             cv->clusterPeels();
+            glutPostRedisplay();
             break;
         default:break;
     }
@@ -99,12 +104,10 @@ int main(int argc, char** argv) {
 
     printMenu();
 
-    cv = new ConvexHull(img, w, h, nRanPoints, kClusters);
+    ulong seed = std::random_device()();
+    cv = new ConvexHull(img, w, h, nRanPoints, kClusters, seed);
 
     glutMainLoop();
-
-    delete img;
-    delete cv;
 
     return 0;
 }
